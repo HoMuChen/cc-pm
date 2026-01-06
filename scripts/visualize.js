@@ -519,22 +519,39 @@ function generateHtml(data) {
     .gantt-bar.done { background: var(--accent-green); }
     .gantt-bar.milestone { background: var(--accent-purple); }
 
+    .gantt-scale {
+      position: relative;
+      height: 24px;
+      margin-bottom: 8px;
+      border-bottom: 1px solid var(--border-color);
+    }
+
+    .gantt-scale span {
+      position: absolute;
+      font-size: 11px;
+      color: var(--text-secondary);
+      transform: translateX(-50%);
+    }
+
     .gantt-today {
       position: absolute;
-      top: 0;
+      top: 24px;
       bottom: 0;
       width: 2px;
       background: var(--accent-red);
       z-index: 10;
     }
 
-    .gantt-today::after {
-      content: '今天';
+    .gantt-today::before {
+      content: '';
       position: absolute;
-      top: -20px;
-      left: -12px;
-      font-size: 10px;
-      color: var(--accent-red);
+      top: -8px;
+      left: -4px;
+      width: 0;
+      height: 0;
+      border-left: 5px solid transparent;
+      border-right: 5px solid transparent;
+      border-top: 8px solid var(--accent-red);
     }
 
     /* Summary Stats */
@@ -766,54 +783,106 @@ function generateTimeline(milestones, today) {
 }
 
 function generateGanttChart(tasks, milestones, today, project) {
-  // 計算日期範圍
-  const allDates = [];
-
-  if (project.project?.start_date) allDates.push(project.project.start_date);
-  if (project.project?.target_date) allDates.push(project.project.target_date);
+  // 收集所有日期來計算範圍
+  const allDueDates = [];
 
   tasks.forEach(t => {
-    if (t.due) allDates.push(t.due);
-    if (t.created) allDates.push(t.created);
+    if (t.due) allDueDates.push(t.due);
   });
 
   milestones.forEach(m => {
-    if (m.due) allDates.push(m.due);
+    if (m.due) allDueDates.push(m.due);
   });
 
-  if (allDates.length === 0) {
-    return '<div class="empty-state">尚無任務或里程碑資料可顯示</div>';
+  // 如果沒有任何日期資料，顯示序列式甘特圖
+  if (allDueDates.length === 0) {
+    // 沒有日期的情況：按任務順序顯示
+    if (tasks.length === 0 && milestones.length === 0) {
+      return '<div class="empty-state">尚無任務或里程碑資料可顯示</div>';
+    }
+
+    const rows = [];
+    const totalItems = tasks.length + milestones.length;
+
+    tasks.forEach((task, index) => {
+      const left = (index / totalItems) * 80;
+      const width = Math.max(60 / totalItems, 8);
+
+      rows.push(`
+        <div class="gantt-row">
+          <div class="gantt-label" title="${task.title}">${task.title || '未命名'}</div>
+          <div class="gantt-bars">
+            <div class="gantt-bar ${task.status}" style="left: ${left}%; width: ${width}%">
+              ${task.priority || ''}
+            </div>
+          </div>
+        </div>
+      `);
+    });
+
+    return `
+      <div class="gantt-chart">
+        <div style="color: var(--text-secondary); font-size: 12px; margin-bottom: 12px;">
+          （任務無日期資料，按順序顯示）
+        </div>
+        ${rows.join('')}
+      </div>
+    `;
   }
 
-  const sortedDates = allDates.sort();
-  const startDate = new Date(sortedDates[0]);
-  const endDate = new Date(sortedDates[sortedDates.length - 1]);
+  // 有日期資料：按時間顯示
+  const sortedDates = allDueDates.sort();
+  let startDate = new Date(sortedDates[0]);
+  let endDate = new Date(sortedDates[sortedDates.length - 1]);
 
-  // 擴展範圍
-  startDate.setDate(startDate.getDate() - 7);
-  endDate.setDate(endDate.getDate() + 14);
+  // 使用專案日期擴展範圍
+  if (project.project?.start_date) {
+    const projStart = new Date(project.project.start_date);
+    if (projStart < startDate) startDate = projStart;
+  }
+  if (project.project?.target_date) {
+    const projEnd = new Date(project.project.target_date);
+    if (projEnd > endDate) endDate = projEnd;
+  }
 
-  const totalDays = Math.ceil((endDate - startDate) / (1000 * 60 * 60 * 24));
+  // 確保有足夠的時間範圍
+  const rangeMs = endDate - startDate;
+  const minRangeMs = 14 * 24 * 60 * 60 * 1000; // 最少 14 天
+  if (rangeMs < minRangeMs) {
+    startDate = new Date(startDate.getTime() - 7 * 24 * 60 * 60 * 1000);
+    endDate = new Date(endDate.getTime() + 7 * 24 * 60 * 60 * 1000);
+  } else {
+    // 前後各擴展 5%
+    const padding = rangeMs * 0.05;
+    startDate = new Date(startDate.getTime() - padding);
+    endDate = new Date(endDate.getTime() + padding);
+  }
+
+  const totalMs = endDate - startDate;
   const todayDate = new Date(today);
-  const todayPosition = Math.max(0, Math.min(100, ((todayDate - startDate) / (endDate - startDate)) * 100));
+  const todayPosition = Math.max(0, Math.min(100, ((todayDate - startDate) / totalMs) * 100));
+
+  // 計算每個任務的 bar 寬度（基於平均間隔）
+  const avgBarWidth = Math.max(8, Math.min(15, 80 / tasks.length));
 
   const rows = [];
 
-  // 任務
-  tasks.forEach(task => {
-    if (!task.due) return;
+  // 按 due 日期排序任務
+  const sortedTasks = [...tasks].filter(t => t.due).sort((a, b) => a.due.localeCompare(b.due));
 
+  sortedTasks.forEach(task => {
     const taskDue = new Date(task.due);
-    const taskStart = task.created ? new Date(task.created) : new Date(taskDue.getTime() - 7 * 24 * 60 * 60 * 1000);
-
-    const left = Math.max(0, ((taskStart - startDate) / (endDate - startDate)) * 100);
-    const width = Math.min(100 - left, ((taskDue - taskStart) / (endDate - startDate)) * 100);
+    // bar 結束於 due 日期位置
+    const duePosition = ((taskDue - startDate) / totalMs) * 100;
+    // bar 從 due 日期往前延伸
+    const left = Math.max(0, duePosition - avgBarWidth);
+    const width = Math.min(avgBarWidth, duePosition);
 
     rows.push(`
       <div class="gantt-row">
         <div class="gantt-label" title="${task.title}">${task.title || '未命名'}</div>
         <div class="gantt-bars">
-          <div class="gantt-bar ${task.status}" style="left: ${left}%; width: ${Math.max(width, 2)}%">
+          <div class="gantt-bar ${task.status}" style="left: ${left}%; width: ${width}%">
             ${task.priority || ''}
           </div>
         </div>
@@ -826,25 +895,36 @@ function generateGanttChart(tasks, milestones, today, project) {
     if (!m.due) return;
 
     const mDate = new Date(m.due);
-    const left = ((mDate - startDate) / (endDate - startDate)) * 100;
+    const left = ((mDate - startDate) / totalMs) * 100;
 
     rows.push(`
       <div class="gantt-row">
         <div class="gantt-label" title="${m.title}">🎯 ${m.title || '未命名'}</div>
         <div class="gantt-bars">
-          <div class="gantt-bar milestone" style="left: ${left}%; width: 2%"></div>
+          <div class="gantt-bar milestone" style="left: ${Math.max(0, left - 1)}%; width: 2%"></div>
         </div>
       </div>
     `);
   });
 
-  if (rows.length === 0) {
-    return '<div class="empty-state">尚無有日期的任務或里程碑</div>';
+  // 生成時間刻度標籤
+  const totalDays = Math.ceil(totalMs / (24 * 60 * 60 * 1000));
+  const tickCount = Math.min(6, Math.max(3, Math.floor(totalDays / 7)));
+  const tickInterval = totalMs / tickCount;
+
+  let timeScale = '<div class="gantt-scale">';
+  for (let i = 0; i <= tickCount; i++) {
+    const tickDate = new Date(startDate.getTime() + tickInterval * i);
+    const label = `${tickDate.getMonth() + 1}/${tickDate.getDate()}`;
+    const pos = (i / tickCount) * 100;
+    timeScale += `<span style="left: ${pos}%">${label}</span>`;
   }
+  timeScale += '</div>';
 
   return `
     <div class="gantt-chart" style="position: relative;">
-      <div class="gantt-today" style="left: calc(200px + ${todayPosition}% * (100% - 200px) / 100)"></div>
+      ${timeScale}
+      <div class="gantt-today" style="left: ${todayPosition}%"></div>
       ${rows.join('')}
     </div>
   `;
