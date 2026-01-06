@@ -20,6 +20,8 @@
 ├── decisions.md     # 決策記錄
 ├── meetings/        # 會議記錄
 ├── docs/            # 專案文件、產出
+├── scripts/         # 工具腳本
+│   └── visualize.js # 視覺化儀表板生成器
 └── assets/          # 參考資料、圖片
 ```
 
@@ -86,6 +88,14 @@
 
 ### 使用者說「開會記錄」或提供會議內容時
 → 在 `meetings/` 建立新的會議記錄檔案
+
+### 使用者說「視覺化」、「看儀表板」或「生成報表」時
+→ 執行視覺化腳本：`node scripts/visualize.js`
+→ 產出 `docs/dashboard.html`，包含：
+  - **看板 (Kanban)**：依狀態分欄顯示所有任務
+  - **時間軸 (Timeline)**：里程碑的時間順序視圖
+  - **甘特圖 (Gantt)**：任務和里程碑的時間範圍視覺化
+→ 告訴使用者可用瀏覽器開啟 `docs/dashboard.html` 查看
 
 ---
 
