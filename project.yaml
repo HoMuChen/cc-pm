@@ -1,0 +1,20 @@
+# 專案資訊
+
+project:
+  name: ""
+  type: ""  # marketing | content | product | event | other
+  status: planning  # planning | active | on-hold | completed
+  start_date: ""
+  target_date: ""
+
+stakeholders:
+  owner: ""
+  client: ""
+  reviewers: []
+
+scope:
+  objective: ""
+  deliverables: []
+  budget: ""
+
+notes: ""
